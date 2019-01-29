@@ -109,8 +109,6 @@ min(CV3)
 
 
 
-
-
 #---------------- Exercice 2 ------------------
 library(gam)
 data(kyphosis)
