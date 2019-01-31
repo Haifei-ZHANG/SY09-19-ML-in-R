@@ -85,9 +85,6 @@ print(opt$par)     # estimates computed with optim
 print(estim$theta)  # EM
 
 
-
-
-
 #my methode to realise the EM for GMM
 #there are some problem on the loglike
 #------------------------------------
@@ -119,9 +116,6 @@ EM <- function(x,y,C,miu,sigma,Pi,epsi=1e-8){
 
 myEstim <- EM(x,y,c,miu0,sigma0,Pi0)
 plot(x,1-myEstim$y)
-
-
-
 
 
 
