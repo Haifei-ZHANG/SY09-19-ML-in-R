@@ -1,0 +1,86 @@
+---
+title: 'SY19 A18 TP7 : Apprentissage à partir de trois jeux de données réelles'
+author: HAOJIE LU, JIACHENG ZHOU et HAIFEI ZHANG
+date: 8 Janvier,2019
+output:
+ pdf_document: default
+---
+PARTIE 3 : classification d'images
+
+  Dans cette partie,on traite la classification d’images naturelles (au format JPEG) représentant des voitures,des chats et des fleurs. La tâche consiste à prédire le contenu de nouvelles images appartenant à l’un de ces trois types. Dans ce projet, on utilise deux méthodes classiques de Machine Learning et une méthode de réseaux de neurones.
+  
+  3.1 Algorithme classique
+  
+  3.1.1 Pré-traitement des données
+  
+  Il est obligatoire de pré-traiter les donnés d'images car les algorithmes ne peuvent pas traiter les données en forme JPEG. Tout d'abord, on utilise la fonction readImage() dans la package "EBImage" qui permet de lire les images  et les transformer en forme de matrice avec 3 dimension (hauteur x largeur x canal). Etant que les tailles de chaque image sont différents, on redimensionne la matrix en forme (64 x 64 x 3) par la fonction resize() de même package.
+  
+  Mais les algorithmes traditionnels ne peuvent pas bien faire l'extraction de caractéristiques, donc on va faire ça manuellement et on utilise l'histogramme de gradient orienté(HOG). Son idée importante est que l'apparence et la forme locale d'un objet dans une image peuvent être décrites par la distribution de l'intensité du gradient ou la direction des contours. On utilise la fonction HOG() dans la package "OpenImageR" et on met cells=3 pourle nombre de division et orientations = 6 pour le nombre d'orientation. Donc, après cette opération, on peut obtenir un vecteur de length 54(3^2*6) avec les descripteurs HOG pour chaque image. A la fin,on assemble tous les vecteurs par rbind() pour obtenir une grande matrice qui garde les données de toute les image.
+  
+  Maintenant, on peut faire notre modèle avec cette grande matrice. Ensuite, on va utilise deux méthodes classiques : KNN et SVM pour classifier les images.
+  
+  3.1.2 Test des différents classifieurs
+  
+  KNN
+  Pour l'algorithme KNN, un problème très important est du choix de paramètre K. Ici, on effectue une validation croisée 10-folds répétée 20 fois pour chercher le meilleur k.Le k=5 est le plus nombreux. Donc, on choisit k=5.
+```{r echo=FALSE fig.height=1, fig.width=2,}
+hist(best_ks,ylab="Nombre",xlab="valeur de K")
+```
+  On aussi effectue une validation croisée 10-folds répétée 10 fois et le taux d'erreur moyen est :
+```{r}
+error_knn
+```
+  Comme on peut le remarquer, le pourcentage d’erreur obtenu est 21% ce qui reste plutôt élévé. Donc on fait un autre classifieur Support Vector Machine(SVM).
+  
+  SVM et KSVM
+  
+  On applique à présent SVM en effectuant une validation croisée en 10-folds. On utilise la fonction svm() dans le package e1071. Car notre projet est une classification de 3 types, il est important de metter la paramètre probabilites= TRUE.
+```{r}
+error_svm
+```
+  Le taux d'errur est environs 15% et il est meilleur  que la méthode précédent. Mais on n'est pas encore satisfait pour cette résultat. Donc, on voudrais savoir si KSVM aura une meilleur preformance. On utilise la fonction ksvm() de package kernlab.
+  
+  On cherche à trouver la meilleur fonction Kernel et on essaie 3 kernels les plus populaires  : Polynomial, Gaussian et MLP kernel. Pour chaque kernel,on fait un choix sur le paramètre C. Voici la graphe ci_dessous : 
+```{r echo=FALSE, fig.height=1, fig.width=2}
+plot(CC,err_c_Gau,ylim=c(0,1),xlim=c(0.01,100),col="blue",type="b",log="x",xlab="C",ylab="CV Error")
+par(new=TRUE)
+plot(CC,err_c_Poly,col="red",type="b",ylim=c(0,1),xlim=c(0.01,100))
+par(new=TRUE)
+plot(CC,err_c_Mlp,col="green",type="b",ylim=c(0,1),xlim=c(0.01,100))
+```
+  
+  
+  3.2 Réseaux de Neurones
+  
+  Dans cette partie, on utilise la méthode CNN (Convolutional Neural Network). Tout d'abord, il faut lire les données et les transformer en en tenseurs/matrices 4D qui peut être reconnaît par CNN,  de forme N x hauteur x largeur x canal . On aussi utilise les fonctions readImage() et resize() de package EBImage pour réaliser çà .La forme dans notre modèle est N x 32 x 32 x 3, où N est le nombre d'images. La méthode CNN permet de extraire des caractéristiques automatiquement, donc on n'a pas besoin de faiire ça manuellement comme la partie précédente. 
+  
+  On fait une modèle avec deux couches convolutionnelles de 2D masquée. Voici la tableau ci-dessous de la présentation de notre modèle CNN :
+```{r fig.height=1, fig.width=2}
+summary(model)
+```
+  En plus, on met epochs=200 et batch_size=32. On retire 20% d'images comme les données de validation. Regardz la graphe générée pendant l'entraînement de modèle. 
+
+  La valeur perdue a une très bonne convergence, bien qu'il y a quelques petites vibration. Le taux correct atteins à 96%, qui est une très bonne performance et qui est beaucoup mieux que les méthodes précédentes. Donc, à la fin on choisit la modèle CNN comme notre predicteur pour les images.
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
