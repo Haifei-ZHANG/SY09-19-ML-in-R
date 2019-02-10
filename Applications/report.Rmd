@@ -1,0 +1,600 @@
+---
+title: "SY19 A18 TP7 Rapport"
+author: "HAOJIE LU, JIACHENG ZHOU et HAIFEI ZHANG"
+date: "8 Janvier,2019"
+output:
+  pdf_document: default
+  html_document: default
+---
+# 1.Partie de classification
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+load("env.RData")
+```
+
+##1.1 Introduction 
+Dans ce problème de classification, nous devons classifier les 3 différents types d'objets astronomiques à partir de ses variables. Pour cette partie nous avons fait les analyses ci-dessous :    
+
+-PCA
+
+-K plus proche voisins    
+
+-Analyse discriminante linéarie (LDA) + Subset selection 
+
+-Analyse discriminante quadratique (QDA) + Subset selection 
+
+-Subset selection + Logistic Regression 
+
+-Classification naive bayésienne 
+
+-Arbre de décision avec application du bagging et des forêts aléatoires
+
+-SVM et KSVM  
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+astro <- read.csv("D:/A-UTC/1PEDAGOGIQUE/A2018/SY19/TP/Nouveau dossier/astro/astronomy_train.csv")
+astro = astro [,c(-1,-10)]
+astro.n <- nrow(astro)
+astro.p <- ncol(astro)
+napp<- round(2*astro.n/3)
+ntst<- astro.n-napp
+ntrain <- sample(1:astro.n,  floor(2*astro.n/3))
+astro.train <- astro[ntrain,]
+astro.test <- astro[-ntrain,]
+
+#prÂ¨Â¦parer pour K-CV 
+library(caret) 
+K=10 
+folds<-createFolds(1:astro.n,K)
+```
+
+## 1.2 Préparation
+  TOut d'abord, nous fasions le nettoyage de données.Etant que la colonne *rerun* et la colonne *objid* sont identiques pour tous les enregistements, nous supprimons ces deux colonnes.Pour pouvoir utiliser plus facilement dans la suite, nous avons séparé les données en deux parties : Un ensemble d'apprentissage (2/3 des données) et un ensemble (2/3 des données) de test. Egalement, on a choisi K=10 pour la validation croisée K-fold. 
+  
+## 1.3 Sélection de modèles
+####PCA
+  Premièrement, nous faisons l'analyse en composant principal pour mieux analyser les données. Mais d'après l'analyse, tous les composants nous semblent importants.   
+
+####KNN
+  Pour la méthode de KNN, nous retiendrons la classe la plus représentée parmi les k sorties associées aux k entrées les proches de la nouvelle entrée x. Premièrement, nous appliquons la méthode de la validation croisée pour obtenir un meilleur k. Par la méthode CV, le taux d'erreur reste presque invariant pour k entre 1 et 500. Donc, on choisissons alors K=100.
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+library(class)
+library(MASS)
+library(caret)
+error_knn<-0
+knn_class<-knn(astro.train[,-12],astro.test[,-12],astro.train[,12],k=100)
+knn_table<-table(astro.test[,12],knn_class)
+error_knn<-1-sum(diag(knn_table))/ntst
+cat("Error knn =", error_knn)
+```
+
+####LDA + subset selection
+  Nous faisons d'abord une sélection d'un sous-ensemble de variables en utilisant la fonction *Stepclass ()* de mainière "backward" dans le package klaR.Puis nous utilisons la fonction *lda()* dans le package *MASS* pour analyser linéariement les données que nous avons choisi.La moyenne des erreurs par 10-CV est ce que nous avons besoin pour la comparaison.
+```{r echo=FALSE, message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE}
+library(MASS)
+library(klaR)
+error_lda<-0
+class.fit_b<-stepclass(class~.,data=astro,method='lda',direction="backward")
+for(i in (1:K)){
+  data.train<-astro[-folds[[i]],]
+  data.test<-astro[folds[[i]],]
+  lda.mod<-lda(class.fit_b$formula,data=data.train)
+  lda.pred<-predict(lda.mod,newdata=data.test)
+  lda.table<-table(data.test$class,lda.pred$class)
+  error_lda<-error_lda+(1-sum(diag(lda.table))/(astro.n/K))
+}
+error_lda<-error_lda/K
+```
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+(class.fit_b)
+cat("Error lda =", error_lda)
+```
+
+####QDA + Subset selection
+  Puis nous utilisons le modèle QDA par la fonction *qda()* dans le package *MASS* .Nous aussi faisons la sélection de prédicateurs. On trouve que il fonctionne beaucoup mieux que LDA.
+```{r echo=FALSE, message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE}
+library(MASS)
+library(klaR)
+error_qda<-0
+class.fit_b<-stepclass(class~.,data=astro,method='qda',direction="backward")
+for(i in (1:K)){
+  data.train<-astro[-folds[[i]],]
+  data.test<-astro[folds[[i]],]
+  qda.mod<-qda(class.fit_b$formula,data=data.train)
+  qda.pred<-predict(qda.mod,newdata=data.test)
+  qda.table<-table(data.test$class,qda.pred$class)
+  error_qda<-error_qda+(1-sum(diag(qda.table))/(astro.n/K))
+}
+error_qda<-error_qda/K
+```
+```{r, echo=FALSE}
+(class.fit_b)
+cat("error qda =", error_qda)
+```
+
+####Naive Bayes classifier
+  Pour cette méthode, nous faisons la modélisation en utilisant la fonction *NaiveBayes()* dans le package *E1071*. Nous calculons ensuite des taux  d'erreur et la moyenne par 10-CV.
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+library(e1071)
+error_nbc<-0
+for(i in (1:K)){
+  data.train<-astro[-folds[[i]],]
+  data.test<-astro[folds[[i]],]
+  nbc.mod<-naiveBayes(as.factor(class)~.,data=data.train)
+  nbc.pred<-predict(nbc.mod,newdata=data.test)
+  nbc.table<-table(data.test$class,nbc.pred)
+  error_nbc<-error_nbc+(1-sum(diag(nbc.table))/(astro.n/K))
+}
+error_nbc<-error_nbc/K
+cat("error nbc =", error_nbc)
+```
+
+####Subset selection + Logistic Regression
+  Dans cette méthode, nous faisons d'abord une sélection des variables. Car c'est une clarification de 3 types et donc  nous utilisons la  fonction *multinom()* de package **nnet*.
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+library(nnet)
+logr.mod<-multinom(formula =as.factor(class) ~ ra + u + r + i + z + run + redshift + mjd,data=astro.train)
+logr.pred<-predict(logr.mod,newdata=astro.test)
+logr.table<-table(astro.test$class,logr.pred)
+error_logr<-1-sum(diag(logr.table))/ntst
+```
+```{r, echo=FALSE}
+cat("final model : class ~ ra + u + r + i + z + run + redshift + mjd \n")
+cat("error logr =", error_logr)
+```
+
+#### Decision Tree
+  Premièrement, nous construissons un arbre de décision sur ces données et nous calculons une erreur sur l'arbre original.
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+library(tree)
+astro$class<- as.factor(astro$class)
+tree.astro<- tree(class ~.,data=astro.train,               
+control=tree.control(nobs=napp,mindev = 0.0001))
+yhat<-predict(tree.astro,newdata=astro.test[,-12],type='class')
+perf.tree <-table(astro.test$class,yhat)
+error_tree_original <- 1-sum(diag(perf.tree))/ntst
+cat("error decision tree =", error_tree_original)
+```
+
+  Puis nous appliquons à l'arbre précédent la procédure d'élagage, nous obtienons que l'erreur diminue un peu.
+```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE,fig.height=2.5}
+cv.tree.astro<-cv.tree(tree.astro,FUN=prune.misclass)
+plot(cv.tree.astro$size,cv.tree.astro$dev/napp,type="b")
+prune.astro<-prune.misclass(tree.astro,best=4)
+yhat<-predict(prune.astro,newdata=astro.test,type='class')
+perf.tree <-table(astro.test$class,yhat)
+error_tree_prune<-1-sum(diag(perf.tree))/ntst
+```
+```{r, echo=FALSE,fig.height=5}
+plot(prune.astro)
+text(prune.astro,pretty=0)
+cat("Error of pruned tree with 4 branches =", error_tree_prune)
+```
+
+  Alors nous appliquons le bagging.
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#install.packages("randomForest")
+library(randomForest)
+bag.astro<-randomForest(class~.,data=astro.train,ntree=500,mtry=17)
+yhat.bag<-predict(bag.astro,newdata=astro.test,type='class')
+perf.bag <-table(astro.test$class,yhat.bag)
+error_bagging<-1-sum(diag(perf.bag))/ntst
+cat("error  bagging tree =", error_bagging)
+```
+
+  Nous changons le paramètre mtry = 4 et nous appliquons les forêts aléatoires sur ces données.
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+rf.astro<-randomForest(class~.,data=astro,subset=ntrain,mtry=4)
+yhat.rf<-predict(bag.astro,newdata=astro.test,type='class')
+perf.rf <-table(astro.test$class,yhat.bag)
+error_rf <- 1-sum(diag(perf.bag))/ntst
+cat("error random Forest = ", error_rf)
+```
+
+####svm
+  Premièrement,nous  utilisons la méthode SVM sans noyau. 
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+library(kernlab)
+library(e1071)
+svm.model <- svm(class~., data = astro.train, type = 'C-classification')
+svm.pred <- predict(svm.model, newdata=astro.test)
+svm.table <- table(astro.test$class, svm.pred)
+error_svm <- 1-sum(diag(svm.table))/(ntst)
+cat("Le taux d'erreur du SVM sans noyau : ",error_svm)
+```
+  
+  Nous utilisons la cross-validation pour trouver un meilleur cost paramètre C. Ca me fait très longtemps pour finir cette opération. Nous obtienons que le best_C = 100. Ensuite, nous essayons plusieur kenerls pour savoir s'il y a d'amélioration. Voici le tableau ci-dessous :
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+svm_test <- function(x,y){
+  type <- c('C-classification','one-classification')
+  kernel <- c('linear','polynomial','radial','sigmoid')
+  pred <- array(0, dim=c(nrow(x),2,4))
+  errors <- matrix(0,2,4)
+  dimnames(errors) <- list(type, kernel)
+  for(i in 1:2){
+    for(j in 1:4){
+      pred[,i,j] <- predict(object = svm(x, y, type = type[i], kernel = kernel[j]), newdata = x,cost=100)
+      if(i > 2) errors[i,j] <- sum(pred[,i,j] != 1)
+      else errors[i,j] <- sum(pred[,i,j] != as.integer(y))/nrow(astro)
+    }
+  }
+  return(errors)
+}
+choix_svm<-svm_test(x=astro[,-12],y=astro$class)
+choix_svm
+```
+  Nous trouvons que le type='C-classification'avec kernel='linear' rende le moindre des erreurs. 
+```{r, echo=FALSE,fig.height=5}
+error_svm_linear<-choix_svm[1]
+cat("error svm with linear kernel =", error_svm_linear)
+```
+ 
+  Ensuite, nous aussi utilisons la fonction *ksvm()* de package *kernelab* pour les refaire.
+```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+ksvm.mod_lap<- ksvm(class~.,data=astro.train,scaled=TRUE,type="C-svc",kernel="laplacedot",prob.model=TRUE, kpar=list(sigma=0.1), C=100,epsilon=0.1 )
+ksvm.pred_lap<- predict(ksvm.mod_lap,newdata=astro.test)
+ksvm.table_lap<-table(astro.test$class,ksvm.pred_lap)
+error_ksvm_laplace<-1-sum(diag(ksvm.table_lap))/ntst
+  ksvm.mod_gau<- ksvm(class~.,data=astro.train,type="C-bsvc",kernel="rbfdot",prob.model=TRUE,kpar=list(sigma=0.1), C=100,epsilon=0.1)
+  ksvm.pred_gau<- predict(ksvm.mod_gau,newdata=astro.test)
+  ksvm.table_gau<-table(astro.test$class,ksvm.pred_gau)
+  error_ksvm_gau<- 1-sum(diag(ksvm.table_gau))/ntst
+  ksvm.mod_pol<- ksvm(class~.,data=astro.train,type="C-svc",kernel="polydot",prob.model=TRUE,C=100,epsilon=0.1,kpar=list(degree=1, scale= 1, offset = 1))
+  ksvm.pred_pol<- predict(ksvm.mod_pol,newdata=astro.test)
+  ksvm.table_pol<-table(astro.test$class,ksvm.pred_pol)
+  error_ksvm_poly<-1-sum(diag(ksvm.table_pol))/ntst
+cat("error_ksvm_Laplacian = ",error_ksvm_laplace,"\n")
+cat("error_ksvm_Gaussian =",error_ksvm_gau,"\n")
+cat("error_ksvm_Polynomial =", error_ksvm_poly,"\n")
+```
+
+##Conclusion
+```{r fig.height=3.5, echo=FALSE}
+ERRORs <- c(error_knn, error_lda, error_qda, error_nbc, error_logr,  error_tree_original,error_tree_prune, error_bagging,error_rf,error_svm,error_svm_linear, error_ksvm_laplace, error_ksvm_gau,error_ksvm_poly)
+
+methodes <- c("KNN", "LDA", "QDA", "Naive Bayes classifier",  "Logistic Regression","original tree","pruned tree","bagging tree","random forest", "SVM sans noyau", "Linear Kernel","Laplacian kernel",  "Gaussian kernel " ,"Polynomial Kernel")
+barplot(ERRORs,col=c("sandybrown","sandybrown","hotpink","sandybrown","hotpink","hotpink","hotpink", "hotpink","hotpink","sandybrown","steelblue","steelblue","steelblue","hotpink"),
+ylim=c(0,0.2),width=1,space=1,ylab="ERROR",las=1,main = "error par différentes méthodes")
+text(x=seq(2,28,by=2),y=-0.002, srt = 30, adj = 1.2, labels = methodes,xpd = TRUE)
+abline(h=0)
+```
+
+Par le barplot de tous les taux d'erreurs, nous pouvons trouver que la methode  Régression Logistique a la meilleure performance.
+```{r, echo=FALSE}
+cat("La meilleure méthode : ",methodes[which.min(ERRORs)])
+cat("\nSon taux d'erreur : ",min(ERRORs))
+```
+
+##2.Partie de regression
+
+### 2.1 Introduction 
+  Dans ce problème de régression, nous devons prédire la normalité du rendement de mais en France à partir des données climatiques fournies. *yield_anomaly* est la variable à prédire représentant l'anomalie de rendement de mais (une valeur positive indique un rendement plus élevé qu'attendu, une valeur négative indique une valeur perte de rendement par rapport à la valeur attendue), exprimée en tonne par ha. Pour cette partie nous avons fait les analyses ci-dessous :
+  
+-préparation des données
+
+-sélection des modèles
+
+-régression linéaire 
+
+-régression de Ridge, régression de Lasso et régression élastique
+
+-régression polynomial et régression spline
+
+-arbre de régression
+
+-SVR
+
+### 2.2 Préparation des données
+  Pour pouvoir être utilisé plus facilement par la suite, nous avons séparé les données en détail : un ensemble d'apprentissage (2/3 des données) et un ensemble de test. Egalement, on a choisi K=10 comme un critère pour validation croisée K-fold.
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+setwd("D:/A-UTC/1PEDAGOGIQUE/A2018/SY19/TP/TP7")
+#read data, build the x(with dimention 57) and y
+mais <- read.csv("./data/mais_train.csv")
+mais <- mais[,-1]
+mais.n <- nrow(mais)
+mais.y <- mais[,2]
+mais.x <- mais[,-2]
+mais.p <- ncol(mais.x)
+mais.napp <- floor(2*mais.n/3)
+mais.ntest <- mais.n-mais.napp
+mais.train <- sample(1:mais.n,mais.napp)
+
+#build the train set and test set 
+mais.trainset <- mais[mais.train,]
+mais.testset <- mais[-mais.train,]
+mais.trainset.x <- mais.x[mais.train,]
+mais.trainset.y <- mais.y[mais.train]
+mais.testset.x <- mais.x[-mais.train,]
+mais.testset.y <- mais.y[-mais.train]
+```
+
+### 2.3 Sélection des modèles
+  Nous avons appliqué la méthode *PCA*, *subsets selection* pour analyser les modèles. Dans le cadre de *subsets selection*, nous n'avons pas utilisé la méthode *exhaustive* parce que 57 prédicteurs sont trop lourd pour cette methode. 
+```{r, echo=FALSE, message=FALSE, warning=FALSE,fig.height=3}
+library(pls)
+mais.pcr.model <- pcr(yield_anomaly~.,data = mais.trainset,scale=TRUE,validation="CV")
+validationplot(mais.pcr.model,val.type = "RMSEP", legendpos = "topright",main="RMSEP en fonction du nombre de composantes")
+```
+ 
+  Selon la graph, on peut voir que le meilleur modèle est de 55 ou de 57 variables. Après, on a utilisé la méthode de *subsets selection* avec *forward* et *backward*. On peut obtenir les critères *adjudant R2*, *BIC* et *rss*. Ici, on doit choisir le modèle du plus grand *adjusted R2*, le modèle du plus petit *BIC* et le modèle du plus petit *rss*.
+```{r, echo=FALSE, message=FALSE, warning=FALSE,fig.height=3}
+library('leaps')
+mais.forwardss <- regsubsets(yield_anomaly~.,data = mais.trainset, method='forward', nvmax=57)
+mais.forwardss.summary <- summary(mais.forwardss)
+par(mfrow=c(1,3))
+plot(mais.forwardss.summary$adjr2,xlab="Nombre de variable",ylab="Adjusted R2",main = "forward stepwise adjR2")
+plot(mais.forwardss.summary$bic,xlab="Nombre de variable",ylab="BIC",main = "forward stepwise BIC")
+plot(mais.forwardss.summary$rss,xlab="Nombre de variable",ylab="RSS",main = "forward stepwise rss")
+```
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+cat("Nombre de variables pour le meilleur modèle par adjr2 : ",which.max(mais.forwardss.summary$adjr2),"\n")
+cat("Nombre de variables pour le meilleur modèle par bic : ",which.min(mais.forwardss.summary$bic),"\n")
+cat("Nombre de variables pour le meilleur modèle par rss : ",which.min(mais.forwardss.summary$rss),"\n")
+```
+ 
+  En suite, on a fait la même chose en *backword stepwise*. Dans ce problème, nous avons choisi deux modeles : un modèle de toutes les 57 variables et autre de minimal BIC avec 18 variables.
+
+### 2.4 Test de modèle 
+
+#### Régression linéaire
+  En utilisant la fonction *lm* avec les deux formulaire ci-dessus, on peut décider lequel modèles on doit choisir pour les autre méthodes ultérieures.
+```{r, echo=FALSE, message=FALSE, warning=TRUE}
+mais.lr.model <- lm(yield_anomaly~.,data = mais.trainset)
+mais.lr.yhat <- predict(mais.lr.model,newdata = mais.testset)
+mais.lr.mse <- sum((mais.lr.yhat - mais.testset.y)^2)/mais.ntest
+mais.lrsubset.model <- lm(yield_anomaly~ETP_1+ETP_3+ETP_7+PR_5+PR_6+PR_7+PR_8+PR_9+RV_7+SeqPR_1+SeqPR_5+Tn_2+Tn_5+Tn_6+Tn_9+Tx_1+Tx_4+Tx_8,data = mais.trainset)
+mais.lrsubset.yhat <- predict(mais.lrsubset.model,newdata = mais.testset)
+mais.lrsubset.mse <- sum((mais.lrsubset.yhat - mais.testset.y)^2)/mais.ntest
+cat("MSE pour lm de 57 variables : ", mais.lr.mse,"\n")
+cat("MSE pour lm de ",which.min(mais.forwardss.summary$bic)," variables : ", mais.lrsubset.mse,"\n")
+```
+  Ici, notre modèle est dérivé de l'ensemble de données d'apprentissage. La valeur de MSE moyenne est obtenue à partir du jeu de données de test. De toute évidence, les résultats montrent que l'utilisation de 57 variables est la meilleure.
+
+#### Régression de Ridge, régression de Lasso et régression élastique
+```{r, echo=FALSE, message=FALSE, warning=FALSE,fig.height=3}
+library(glmnet)
+par(mfrow=c(1,2))
+mais.ridge.cv.out <- cv.glmnet(model.matrix(yield_anomaly~.,mais),mais.y,alpha=0)
+plot(mais.ridge.cv.out,main="Lambda in Ridge")
+mais.ridge.model <- glmnet(model.matrix(yield_anomaly~.,mais.trainset),mais.trainset.y,lambda =  mais.ridge.cv.out$lambda.min,alpha = 0)
+mais.ridge.yhat <- predict(mais.ridge.model,s=mais.ridge.cv.out$lambda.min,newx = model.matrix(yield_anomaly~.,mais.testset))
+mais.ridge.mse <- mean((mais.ridge.yhat- mais.testset.y)^2)
+#################################################################################################################
+mais.lasso.cv.out <- cv.glmnet(model.matrix(yield_anomaly~.,mais),mais.y,alpha=1)
+plot(mais.lasso.cv.out,main="Lambda in Lasso")
+mais.lasso.model <- glmnet(model.matrix(yield_anomaly~.,mais.trainset),mais.trainset.y,lambda =  mais.lasso.cv.out$lambda.min,alpha = 1)
+mais.lasso.yhat <- predict(mais.lasso.model,s=mais.lasso.cv.out$lambda.min,newx = model.matrix(yield_anomaly~.,mais.testset))
+mais.lasso.mse <- mean((mais.lasso.yhat- mais.testset.y)^2)
+```
+  
+  Sur le graphique ci-dessus, nous pouvons voir que la méthode de régression de ridge ne compresse pas les coefficients des variables à zéro. Avec la régression de lasso, lorsque ?? augmente, les coefficients de certaines variables moins importantes sont compressés à zéro. Par conséquent, la régression de lasso peut également être utilisée pour la sélection du modèle.
+
+  Pour la méthode régression de ridge, le paramètre alpha égale à zéro et pour régression de lasso est un. Mais on ne sait pas le comportement des valeurs d'alpha entre zéro et un. Nous avons appliqué la méthode de validation croisée pour déterminer la valeur d'alpha. C'est la méthode *régression élastique*.
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+K <- 10
+folds = sample(1:K,mais.n,replace = TRUE)
+mais.elastic.mse <- rep(0,11)
+for(alpha in seq(0,1,by=0.1)){
+  mais.elastic.cv.out <- cv.glmnet(model.matrix(yield_anomaly~.,mais),mais.y,alpha=alpha)
+  for(k in 1:K){
+    
+    #plot(mais.lasso.cv.out)
+    mais.elastic.model <- glmnet(model.matrix(yield_anomaly~.,mais[folds == k,]),mais.y[folds == k],lambda =  mais.elastic.cv.out$lambda.min,alpha = alpha)
+    mais.elastic.yhat <- predict(mais.elastic.model,s=mais.elastic.cv.out$lambda.min,newx = model.matrix(yield_anomaly~.,mais[folds == k,]))
+    mais.elastic.mse[10*alpha+1] <- mais.elastic.mse[10*alpha+1]+sum((mais.elastic.yhat- mais.y[folds == k])^2)
+    }
+  mais.elastic.mse[10*alpha+1] <- mais.elastic.mse[10*alpha+1]/mais.n
+}
+```
+```{r, echo=FALSE, message=FALSE, warning=FALSE,fig.height=3}
+plot(y=mais.elastic.mse,x=seq(0,1,by=0.1),pch=20, type="b", lty=1,main="mse en différents alphas",xlab="alpha",ylab="mse")#here we choose the best alpha, and build the model with this alpha
+alpha <- (which.min(mais.elastic.mse)-1)/10
+mais.elastic.cv.out <- cv.glmnet(model.matrix(yield_anomaly~.,mais),mais.y,alpha=alpha)
+mais.elastic.bestmodel <- glmnet(model.matrix(yield_anomaly~.,mais.trainset),mais.trainset.y,lambda =  mais.elastic.cv.out$lambda.min,alpha =alpha)
+mais.elastic.bestyhat <- predict(mais.elastic.bestmodel,s=mais.elastic.cv.out$lambda.min,newx = model.matrix(yield_anomaly~.,mais.testset))
+mais.elastic.bestmse <- mean((mais.elastic.bestyhat- mais.testset.y)^2)
+```
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+cat("Le meilleur alpha : ",alpha,"\n")
+cat("La mse minimale : ",mais.elastic.bestmse,"\n")
+```
+
+####Régression polynomial et régression spline
+  Nous avons également essayé la régression polynomiale et la régression spline. Dans la régression par splines, nous avons appliqué *Natural Cubic Splines* et *B-Spline Basis*. Parmi ces méthodes, il existe un hyperparamètre *degree* ou *df* à déterminer. Par conséquent, nous avons utilisé une approche de validation croisée. Ci-dessous est le résultat que nous avons obtenu.
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+#method2 : poly regression
+#find the best degree by crosse validation
+#mais.x.names=paste(colnames(mais), collapse=" + ")
+library('MASS')
+mais.poly.mse <- rep(0,10)
+for(d in 1:10){
+  for(k in (1:K)){
+    mais.poly.model=lm(yield_anomaly~poly(year_harvest + NUMD + IRR + ETP_1 + ETP_2 + ETP_3 + ETP_4 + ETP_5 + ETP_6 + ETP_7 + ETP_8 + ETP_9 + PR_1 + PR_2 + PR_3 + PR_4 + PR_5 + PR_6 + PR_7 + PR_8 + PR_9 + RV_1 + RV_2 + RV_3 + RV_4 + RV_5 + RV_6 + RV_7 + RV_8 + RV_9 + SeqPR_1 + SeqPR_2 + SeqPR_3 + SeqPR_4 + SeqPR_5 + SeqPR_6 + SeqPR_7 + SeqPR_8 + SeqPR_9 + Tn_1 + Tn_2 + Tn_3 + Tn_4 + Tn_5 + Tn_6 + Tn_7 + Tn_8 + Tn_9 + Tx_1 + Tx_2 + Tx_3 + Tx_4 + Tx_5 + Tx_6 + Tx_7 + Tx_8 + Tx_9,degree=d),data=mais[folds!=k,])
+    mais.poly.yhat<-predict(mais.poly.model,newdata=mais[folds==k,])
+    mais.poly.mse[d]<-mais.poly.mse[d]+ sum((mais.y[folds == k]-mais.poly.yhat)^2)
+  }
+  mais.poly.mse[d] <- mais.poly.mse[d]/mais.n
+}
+mais.poly.bestmodel <- lm(yield_anomaly~poly(year_harvest + NUMD + IRR + ETP_1 + ETP_2 + ETP_3 + ETP_4 + ETP_5 + ETP_6 + ETP_7 + ETP_8 + ETP_9 + PR_1 + PR_2 + PR_3 + PR_4 + PR_5 + PR_6 + PR_7 + PR_8 + PR_9 + RV_1 + RV_2 + RV_3 + RV_4 + RV_5 + RV_6 + RV_7 + RV_8 + RV_9 + SeqPR_1 + SeqPR_2 + SeqPR_3 + SeqPR_4 + SeqPR_5 + SeqPR_6 + SeqPR_7 + SeqPR_8 + SeqPR_9 + Tn_1 + Tn_2 + Tn_3 + Tn_4 + Tn_5 + Tn_6 + Tn_7 + Tn_8 + Tn_9 + Tx_1 + Tx_2 + Tx_3 + Tx_4 + Tx_5 + Tx_6 + Tx_7 + Tx_8 + Tx_9,degree=which.min(mais.poly.mse)),data=mais.trainset)
+mais.poly.bestyhat <- predict(mais.poly.bestmodel,newdata=mais.testset)
+mais.poly.bestmse <- mean((mais.poly.bestyhat- mais.testset.y)^2)
+
+#method3 : spline regression
+library('splines')
+#Natural Cubic Splines
+mais.ns.mse <- rep(0,10)
+for(d in 1:10){
+  for(k in (1:K)){
+    mais.ns.model=lm(yield_anomaly~ns(year_harvest + NUMD + IRR + ETP_1 + ETP_2 + ETP_3 + ETP_4 + ETP_5 + ETP_6 + ETP_7 + ETP_8 + ETP_9 + PR_1 + PR_2 + PR_3 + PR_4 + PR_5 + PR_6 + PR_7 + PR_8 + PR_9 + RV_1 + RV_2 + RV_3 + RV_4 + RV_5 + RV_6 + RV_7 + RV_8 + RV_9 + SeqPR_1 + SeqPR_2 + SeqPR_3 + SeqPR_4 + SeqPR_5 + SeqPR_6 + SeqPR_7 + SeqPR_8 + SeqPR_9 + Tn_1 + Tn_2 + Tn_3 + Tn_4 + Tn_5 + Tn_6 + Tn_7 + Tn_8 + Tn_9 + Tx_1 + Tx_2 + Tx_3 + Tx_4 + Tx_5 + Tx_6 + Tx_7 + Tx_8 + Tx_9,df=d),data=mais[folds!=k,])
+    mais.ns.yhat<-predict(mais.ns.model,newdata=mais[folds==k,])
+    mais.ns.mse[d]<-mais.ns.mse[d]+ sum((mais.y[folds == k]-mais.ns.yhat)^2)
+  }
+  mais.ns.mse[d] <- mais.ns.mse[d]/mais.n
+}
+mais.ns.bestmodel <- lm(yield_anomaly~ns(year_harvest + NUMD + IRR + ETP_1 + ETP_2 + ETP_3 + ETP_4 + ETP_5 + ETP_6 + ETP_7 + ETP_8 + ETP_9 + PR_1 + PR_2 + PR_3 + PR_4 + PR_5 + PR_6 + PR_7 + PR_8 + PR_9 + RV_1 + RV_2 + RV_3 + RV_4 + RV_5 + RV_6 + RV_7 + RV_8 + RV_9 + SeqPR_1 + SeqPR_2 + SeqPR_3 + SeqPR_4 + SeqPR_5 + SeqPR_6 + SeqPR_7 + SeqPR_8 + SeqPR_9 + Tn_1 + Tn_2 + Tn_3 + Tn_4 + Tn_5 + Tn_6 + Tn_7 + Tn_8 + Tn_9 + Tx_1 + Tx_2 + Tx_3 + Tx_4 + Tx_5 + Tx_6 + Tx_7 + Tx_8 + Tx_9,df=which.min(mais.ns.mse)),data=mais.trainset)
+mais.ns.bestyhat <- predict(mais.ns.bestmodel,newdata=mais.testset)
+mais.ns.bestmse <- mean((mais.ns.bestyhat- mais.testset.y)^2)
+
+#B-Spline Basis
+mais.bs.mse <- rep(0,10)
+for(d in 1:10){
+  for(k in (1:K)){
+    mais.bs.model=lm(yield_anomaly~bs(year_harvest + NUMD + IRR + ETP_1 + ETP_2 + ETP_3 + ETP_4 + ETP_5 + ETP_6 + ETP_7 + ETP_8 + ETP_9 + PR_1 + PR_2 + PR_3 + PR_4 + PR_5 + PR_6 + PR_7 + PR_8 + PR_9 + RV_1 + RV_2 + RV_3 + RV_4 + RV_5 + RV_6 + RV_7 + RV_8 + RV_9 + SeqPR_1 + SeqPR_2 + SeqPR_3 + SeqPR_4 + SeqPR_5 + SeqPR_6 + SeqPR_7 + SeqPR_8 + SeqPR_9 + Tn_1 + Tn_2 + Tn_3 + Tn_4 + Tn_5 + Tn_6 + Tn_7 + Tn_8 + Tn_9 + Tx_1 + Tx_2 + Tx_3 + Tx_4 + Tx_5 + Tx_6 + Tx_7 + Tx_8 + Tx_9,df=d),data=mais[folds!=k,])
+    mais.bs.yhat<-predict(mais.bs.model,newdata=mais[folds==k,])
+    mais.bs.mse[d]<-mais.bs.mse[d]+ sum((mais.y[folds == k]-mais.bs.yhat)^2)
+  }
+  mais.bs.mse[d] <- mais.bs.mse[d]/mais.n
+}
+mais.bs.bestmodel <- lm(yield_anomaly~bs(year_harvest + NUMD + IRR + ETP_1 + ETP_2 + ETP_3 + ETP_4 + ETP_5 + ETP_6 + ETP_7 + ETP_8 + ETP_9 + PR_1 + PR_2 + PR_3 + PR_4 + PR_5 + PR_6 + PR_7 + PR_8 + PR_9 + RV_1 + RV_2 + RV_3 + RV_4 + RV_5 + RV_6 + RV_7 + RV_8 + RV_9 + SeqPR_1 + SeqPR_2 + SeqPR_3 + SeqPR_4 + SeqPR_5 + SeqPR_6 + SeqPR_7 + SeqPR_8 + SeqPR_9 + Tn_1 + Tn_2 + Tn_3 + Tn_4 + Tn_5 + Tn_6 + Tn_7 + Tn_8 + Tn_9 + Tx_1 + Tx_2 + Tx_3 + Tx_4 + Tx_5 + Tx_6 + Tx_7 + Tx_8 + Tx_9,df=which.min(mais.bs.mse)),data=mais.trainset)
+mais.bs.bestyhat <- predict(mais.bs.bestmodel,newdata=mais.testset)
+mais.bs.bestmse <- mean((mais.bs.bestyhat- mais.testset.y)^2)
+```
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+cat("La meilleure valeur de paramètre 'degree' pour régression polynomiale : ",which.min(mais.ns.mse),"\n")
+cat("La mse pour la régression polynomiale : ",mais.poly.bestmse,"\n")
+cat("La meilleure valeur de paramètre 'df' pour Natural Cubic Splines : ",which.min(mais.ns.mse),"\n")
+cat("La mse pour Natural Cubic Splines : ",mais.ns.bestmse,"\n")
+cat("La meilleure valeur de paramètre 'df' pour B-Spline Basis : ",which.min(mais.bs.mse),"\n")
+```
+  D'après les résultats, les effets de la régression polynomiale et de la régression spline ne sont pas bons.
+
+####Arbre de régression
+  Les méthodes arborescentes sont souvent utilisées pour classifier les problèmes, mais dans les problèmes de régression simples, l'arbres de régression constituent également une approche intéressante.
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+#regression tree
+library(tree)
+mais.tree.model<-tree(yield_anomaly~.,mais.trainset)
+#plot(mais.tree.model)
+#text(mais.tree.model,pretty=0)
+mais.tree.yhat <- predict(mais.tree.model,newdata = mais.testset)
+mais.tree.mse <- mean((mais.tree.yhat - mais.testset.y)^2)
+#use the pruning tree
+mais.prune.mse <- rep(0,20)
+mais.prune.mse[1]=1
+for(beta in 2:20){
+  for(k in (1:K)){
+    mais.prunetree.model<-tree(yield_anomaly~.,data=mais[folds!=k,])
+    mais.prunetree.model<-prune.tree(mais.prunetree.model,best=beta)
+    #mais.poly.model=lm(mais.y[folds!=k]~poly(as.matrix(mais.x[folds!=k,]),degree=d))
+    mais.prunetree.yhat<-predict(mais.prunetree.model,newdata=mais[folds==k,])
+    mais.prune.mse[beta]<-mais.prune.mse[beta]+ sum((mais.y[folds == k]-mais.prunetree.yhat)^2)
+  }
+  mais.prune.mse[beta] <- mais.prune.mse[beta]/mais.n
+}
+#plot(y=mais.prune.mse,x=seq(1,20,by=1),pch=20, lty=1, ylim = c(0.7,1))
+beta<-which.min(mais.prune.mse)
+mais.prunetree.bestmodel<-tree(yield_anomaly~.,data=mais.trainset)
+mais.prunetree.bestmodel=prune.tree(mais.prunetree.bestmodel,best=beta)
+mais.prunetree.bestyhat <- predict(mais.prunetree.bestmodel,newdata = mais.testset)
+mais.prunetree.bestmse <- mean((mais.prunetree.bestyhat - mais.testset.y)^2)
+```
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+plot(mais.prunetree.bestmodel,main="prune tree with 15 branches")
+text(mais.tree.model,pretty=0)
+cat("La mse pour l'arbre par défaut : ",mais.tree.mse,"\n")
+cat("le meilleur nombre de feuille de l'arbre : ",beta,"\n")
+cat("La mse pour l'arbre pruine : ",mais.prunetree.bestmse,"\n")
+```
+
+####Regression de mixture
+  En utilisant la fonction *regmixEM* de la librairie *mixtools*, nous avons trouver le jeu de donnée est composé de deux composents principal. Avec les coefficients, on peut obtenir les predictions. Le resultat n'est pas mal.
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+library(mixtools)
+mais.regmixEM.model<-regmixEM(mais.trainset.y,as.matrix(mais.trainset.x),epsilon = 1e-04)
+beta<-as.matrix(mais.regmixEM.model$beta[,2])
+mais.regmixEM.testX <- as.matrix(mais.testset.x)
+mais.regmixEM.yhat<-mais.regmixEM.testX %*% beta[-1,1]+beta[1,1]
+mais.regmixEM.mse<-mean((mais.regmixEM.yhat - mais.testset.y)^2)
+```
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+cat("La mse de regmixEm : ",mais.regmixEM.mse,"\n")
+```
+
+####SVR
+  Enfin, nous avons utilisé la méthode SVR. Nous avons essayé plusieurs nouyau kernels : Gaussian, Laplacian et Polynomial. 
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+library(kernlab)
+library(MASS)
+mais.svr.bestmodel<-ksvm(yield_anomaly~.,data=mais.trainset,scaled=TRUE,type="eps-svr",kernel="laplacedot",C=10,epsilon=0.1)
+mais.svr.bestyhat <- predict(mais.svr.bestmodel,newdata = mais.testset)
+mais.svr.bestmse <- mean((mais.svr.bestyhat - mais.testset.y)^2)
+```
+
+  Donc, nous utilisons le noyau de "laplacedot". Après, nous avons également utilisé une méthode de validation croisée pour déterminer le paramètre C parmis 0.01, 0.1, 1, 10,100 et 1000. Cette méthode prend beaucoup de temps à travailler, mais le résultat final est très bon.
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+cat("La mse de SVR : ",mais.svr.bestmse,"\n")
+```
+
+### 2.5 Conclusion
+  Après nos exploitations, nous avons découvert ce que la méthode de *"SVR"* avec noyau de *"laplacedot"* possède le meilleure comportement pour ce problème. ci-dessous est la graph de MSE des différent méthode. 
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+MSEs <- c(mais.lr.mse,mais.ridge.mse,mais.lasso.mse,mais.elastic.bestmse,mais.poly.bestmse,mais.ns.bestmse,mais.bs.bestmse,mais.tree.mse,mais.prunetree.bestmse,mais.regmixEM.mse,mais.svr.bestmse)
+methodes <- c("linear regression","Ridgr regression","Lasso regression","Elestic net","Polynomial regression","Natual spline","B-spline","Regression tree","Regression pruned tree","Mixture of regression","SVR")
+barplot(MSEs,col=c("steelblue","steelblue","steelblue","steelblue","sandybrown","sandybrown","sandybrown", "mediumturquoise","mediumturquoise","steelblue","hotpink"),ylim=c(0,1.1),width=1,space=1,ylab="MSE",las=1,main = "MSE par différentes méthodes")
+text(x=seq(2,22,by=2),y=-0.04, srt = 30, adj = 1, labels = methodes,xpd = TRUE)
+abline(h=seq(0,1,by=0.1),col="#00000088",lwd=2)
+abline(h=0)
+```
+
+
+##PARTIE 3 : classification d'images
+
+  Dans cette partie,on traite la classification d'images naturelles (au format JPEG) représentant des voitures,des chats et des fleurs. La tqche consiste à prédire le contenu de nouvelles images appartenant à l'un de ces trois types. Dans ce projet, on utilise deux méthodes classiques de Machine Learning et une méthode de réseaux de neurones.
+  
+### 3.1 Algorithme classique
+  
+#### Pré-traitement des données
+  
+  Il est obligatoire de pré-traiter les donnés d'images car les algorithmes ne peuvent pas traiter les données en forme JPEG. Tout d'abord, on utilise la fonction *readImage()* dans la package "EBImage" qui permet de lire les images  et les transformer en forme de matrice avec 3 dimension *(hauteur x largeur x canal)*. Etant que les tailles de chaque image sont différents, on redimensionne la matrix en forme *(64 x 64 x 3)* par la fonction *resize()* de même package.
+  
+  Mais les algorithmes traditionnels ne peuvent pas bien faire l'extraction de caractéristiques, donc on va faire manuellement et on utilise l'histogramme de gradient orienté(HOG). Son idée importante est que l'apparence et la forme locale d'un objet dans une image peuvent être décrites par la distribution de l'intensité du gradient ou la direction des contours. On utilise la fonction *HOG()* dans la package "OpenImageR" et on met cells=3 pourle nombre de division et orientations = 6 pour le nombre d'orientation. Donc, après cette opération, on peut obtenir un vecteur de length 54(3^2x6) avec les descripteurs HOG pour chaque image. A la fin,on assemble tous les vecteurs par *rbind()* pour obtenir une grande matrice qui garde les données de toute les image.
+  
+  Maintenant, on peut faire notre modèle avec cette grande matrice. Ensuite, on va utilise deux méthodes classiques : KNN et SVM pour classifier les images.
+  
+####  Test des différents classifieurs
+  
+  KNN
+  
+  Pour l'algorithme KNN, un problème très important est du choix de paramètre K. Ici, on effectue une validation croisée 10-folds répétée 20 fois pour chercher le meilleur k.Le k=5 est le plus nombreux. Donc, on choisit k=5.
+```{r echo=FALSE, echo=FALSE, message=FALSE, warning=FALSE,fig.height=3}
+best_ks<-c(6,5,5,5,5,5,5,11, 7,5,5,5,5,6,5,7,5,6,7,5)
+hist(best_ks,ylab="Nombre",xlab="valeur de K")
+```
+ 
+  On aussi effectue une validation croisée 10-folds répétée 10 fois et le taux d'erreur moyen est :
+```{r, echo=FALSE}
+error_knn<-0.2145536
+error_knn
+```
+  Comme on peut le remarquer, le pourcentage d'erreur obtenu est 21% ce qui reste  élévé. Donc on fait un autre classifieur Support Vector Machine(SVM).
+  
+  SVM et KSVM
+  
+  On applique à présent SVM en effectuant une validation croisée en 10-folds. On utilise la fonction *svm()* dans le package *e1071*. Car notre projet est une classification de 3 types, il est important de metter la paramètre *probabilites= TRUE*.
+```{r, echo=FALSE}
+error_svm<-0.151589344
+error_svm
+```  
+
+Le taux d'errur est environs 15% et il est meilleur  que la méthode précédent. Mais on n'est pas encore satisfait pour cette résultat. Donc,On voudrais savoir si KSVM aura une meilleur preformance. On utilise la fonction *ksvm()* de package kernlab.
+  
+  On cherche à trouver la meilleur fonction Kernel et on essaie 2 kernels les plus populaires  :  Gaussian et MLP kernel. On fait pas le kernerl polynomial car ça fait très long temps pour l'algotithme. Pour chaque kernel,on fait un choix sur le paramètre C. Voici la graphe ci_dessous : 
+```{r echo=FALSE,fig.height=3}
+CC<-c(1e-02 ,1e-01 ,1e+00 ,5e+00 ,1e+01, 5e+01 ,1e+02)
+err_c_Gau<-c(0.6302796 ,0.2117271 ,0.1572339 ,0.1490853, 0.1465891 ,0.1591246, 0.1603707)
+plot(CC,err_c_Gau,ylim=c(0,1),xlim=c(0.01,100),col="blue",type="b",log="x",xlab="C",ylab="CV Error")
+par(new=TRUE)
+err_c_Mlp<-c(0.3476281 ,0.4936754 ,0.5175242 ,0.5187584 ,0.5206769 ,0.5187980 ,0.5175480)
+plot(CC,err_c_Mlp,col="green",type="b",ylim=c(0,1),xlim=c(0.01,100))
+cat("La meilleur kernel, C et le taux d'erreur : Gaussian,", CC[which.min(err_c_Gau)],", ",min(err_c_Gau))
+```
+  
+  On peut trouve que la kernel MLP fait très mal. Mais la kernel Gaussian avec C=5 est un peu meilleur que svm et son taux d'erreur est envions 14.7%.
+  
+###   3.2 Réseaux de Neurones
+  
+  Dans cette partie, on utilise la méthode CNN (Convolutional Neural Network). Tout d'abord, il faut lire les données et les transformer en en tenseurs/matrices 4D qui peut être reconnaît par CNN,  de forme N x hauteur x largeur x canal . On aussi utilise les fonctions *readImage()* et *resize()* de package EBImage pour réaliser ça .La forme dans notre modèle est N x 32 x 32 x 3, où N est le nombre d'images. La méthode CNN permet de extraire des caractéristiques automatiquement, donc on n'a pas besoin de faiire ça manuellement comme la partie précédente. 
+  
+  On fait un modèle avec deux couches convolutionnelles de 2D masquée. La présentation de notre modèle CNN est dans ANNEXE.
+
+  En plus, on met *epochs=200* et *batch_size=32*. On retire 20% d'images pour la validation,20% pour le test et la reste pour entraîner le modèle. Regardz la graphe générée pendant l'entraînement de modèle dans ANNEXE. La valeur perdue a une très bonne convergence, bien qu'il y a quelques petites vibrations. Le taux correct dans la validation atteins atteint à 96%. Mais sa performance dnas les données de test est ,qui est beaucoup pire que celle-ci de validation. C'est envrions 78%. Donc on choisit le HOG + SVM comme notre prédicteur final.
+
+
